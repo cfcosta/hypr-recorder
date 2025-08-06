@@ -14,7 +14,6 @@ use input::{HyprlandKeyHandler, KeyAction};
 use notification::RecordingNotification;
 use tokio::time::interval;
 use tracing::{error, info, warn};
-use tracing_subscriber;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -47,8 +46,6 @@ async fn main() -> Result<()> {
         error!("Failed to register keybindings: {}", e);
         return Err(e);
     }
-
-    // Note: Cleanup will be handled at the end of main function
 
     // Start recording
     recorder
@@ -138,7 +135,7 @@ async fn save_recording(
 
     // Generate output filename with timestamp
     let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
-    let filename = format!("recording_{}.wav", timestamp);
+    let filename = format!("recording_{timestamp}.wav");
 
     // Save to current directory or home directory
     let output_path = env::current_dir()

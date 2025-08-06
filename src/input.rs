@@ -1,19 +1,9 @@
-use std::{
-    env,
-    io::{BufRead, BufReader, Write},
-    os::unix::net::UnixStream,
-    path::PathBuf,
-    time::Duration,
-};
+use std::{env, path::PathBuf, time::Duration};
 
 use anyhow::{Context, Result};
-use serde_json::Value;
 use tempfile::NamedTempFile;
-use tokio::{
-    fs,
-    time::{interval, sleep},
-};
-use tracing::{debug, error, info, warn};
+use tokio::{fs, time::interval};
+use tracing::{debug, info, warn};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum KeyAction {
@@ -22,7 +12,6 @@ pub enum KeyAction {
 }
 
 pub struct HyprlandKeyHandler {
-    socket_path: PathBuf,
     temp_file: Option<NamedTempFile>,
     bindings_registered: bool,
 }
@@ -43,7 +32,6 @@ impl HyprlandKeyHandler {
         info!("Using Hyprland socket: {}", socket_path.display());
 
         Ok(Self {
-            socket_path,
             temp_file: None,
             bindings_registered: false,
         })
@@ -59,9 +47,9 @@ impl HyprlandKeyHandler {
 
         // Register keybindings via Hyprland IPC
         let enter_cmd =
-            format!("keyword bind ,Return,exec,echo 'SAVE' > {}", temp_path);
+            format!("keyword bind ,Return,exec,echo 'SAVE' > {temp_path}");
         let escape_cmd =
-            format!("keyword bind ,Escape,exec,echo 'CANCEL' > {}", temp_path);
+            format!("keyword bind ,Escape,exec,echo 'CANCEL' > {temp_path}");
 
         self.send_hyprland_command(&enter_cmd)
             .await
@@ -141,7 +129,7 @@ impl HyprlandKeyHandler {
     async fn send_hyprland_command(&self, command: &str) -> Result<String> {
         debug!("Sending Hyprland command: {}", command);
 
-        // Use hyprctl to send commands (more reliable than direct socket)
+        // Use `hyprctl` to send commands (more reliable than direct socket)
         let output = tokio::process::Command::new("hyprctl")
             .arg("--batch")
             .arg(command)

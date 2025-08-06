@@ -13,7 +13,6 @@ use std::{
 use anyhow::{Context, Result};
 use cpal::{
     Device,
-    Host,
     Stream,
     StreamConfig,
     traits::{DeviceTrait, HostTrait, StreamTrait},
@@ -23,7 +22,6 @@ use tokio::time::sleep;
 use tracing::{debug, error, info};
 
 pub struct AudioRecorder {
-    host: Host,
     device: Device,
     config: StreamConfig,
     samples: Arc<Mutex<Vec<f32>>>,
@@ -49,7 +47,6 @@ impl AudioRecorder {
         debug!("Input config: {:?}", config);
 
         Ok(Self {
-            host,
             device,
             config,
             samples: Arc::new(Mutex::new(Vec::new())),
@@ -136,12 +133,6 @@ impl AudioRecorder {
         info!("Audio saved to: {}", path.as_ref().display());
 
         Ok(())
-    }
-
-    pub fn get_recording_duration(&self) -> Duration {
-        self.start_time
-            .map(|start| start.elapsed())
-            .unwrap_or_default()
     }
 
     pub fn is_recording(&self) -> bool {

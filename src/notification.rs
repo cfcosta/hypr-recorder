@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use notify_rust::{Notification, NotificationHandle, Timeout};
-use tracing::{debug, error, info};
+use tracing::{debug, info};
 
 pub struct RecordingNotification {
     handle: Option<NotificationHandle>,
@@ -43,23 +43,18 @@ impl RecordingNotification {
         );
 
         let body = format!(
-            "Press Enter to save, Esc to cancel\n{} {}s / 60s ({}%)",
-            progress_bar, elapsed_secs, progress_percent
+            "Press Enter to save, Esc to cancel\n{progress_bar} {elapsed_secs}s / 60s ({progress_percent}%)"
         );
 
         debug!("Updating notification progress: {}%", progress_percent);
 
         if let Some(ref mut handle) = self.handle {
             // Update the existing notification
-            let updated = Notification::new()
+            handle
                 .summary("🎤 Recording Audio")
                 .body(&body)
-                .icon("audio-input-microphone")
-                .timeout(Timeout::Never)
-                .show()
-                .context("Failed to update notification")?;
-
-            *handle = updated;
+                .icon("audio-input-microphone");
+            handle.update();
         }
 
         Ok(())
