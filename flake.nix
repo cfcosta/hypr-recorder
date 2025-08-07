@@ -106,6 +106,7 @@
             pkg-config
             alsa-lib
             python3Packages.openai-whisper
+            libinput
           ];
         };
       }

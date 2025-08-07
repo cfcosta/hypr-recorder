@@ -4,25 +4,16 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-# Audio recording
+anyhow = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
 cpal = "0.15"
 hound = "3.5"
-
-# Notifications
+input = "0.9.1"
+libc = "0.2"
 notify-rust = "4.10"
-
-# Async runtime
-tokio = { version = "1.0", features = ["full"] }
-
-# Input handling
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-
-# Utilities
-anyhow = "1.0"
+tempfile = "3.8"
+tokio = { version = "1.0", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = "0.3"
-chrono = { version = "0.4", features = ["serde"] }
-
-# File system operations
-tempfile = "3.8"

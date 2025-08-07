@@ -1,7 +1,7 @@
 use std::{process::Command, time::Duration};
 
 use anyhow::{Context, Result};
-use tracing::{debug, info};
+use tracing::info;
 
 pub struct RecordingNotification {
     is_active: bool,
