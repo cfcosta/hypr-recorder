@@ -1,100 +1,90 @@
-use std::time::Duration;
+use std::{process::Command, time::Duration};
 
 use anyhow::{Context, Result};
-use notify_rust::{Notification, NotificationHandle, Timeout};
 use tracing::{debug, info};
 
 pub struct RecordingNotification {
-    handle: Option<NotificationHandle>,
+    is_active: bool,
 }
 
 impl RecordingNotification {
     pub fn show() -> Result<Self> {
-        info!("Showing recording notification");
+        info!("Showing recording notification via swayosd");
 
-        let notification = Notification::new()
-            .summary("🎤 Recording Audio")
-            .body("Press Enter to save, Esc to cancel\nRecording: 0s / 60s")
-            .icon("audio-input-microphone")
-            .timeout(Timeout::Never)
-            .show()
-            .context("Failed to show notification")?;
+        // Show initial progress (0%)
+        Self::show_progress(0, 0)?;
 
-        Ok(Self {
-            handle: Some(notification),
-        })
+        Ok(Self { is_active: true })
     }
 
     pub fn update_progress(&mut self, elapsed: Duration) -> Result<()> {
-        let elapsed_secs = elapsed.as_secs();
-        let progress_percent =
-            (elapsed_secs as f32 / 60.0 * 100.0).min(100.0) as u8;
-
-        // Create progress bar visualization
-        let bar_length = 20;
-        let filled_length =
-            (bar_length as f32 * progress_percent as f32 / 100.0) as usize;
-        let empty_length = bar_length - filled_length;
-
-        let progress_bar = format!(
-            "[{}{}]",
-            "█".repeat(filled_length),
-            "░".repeat(empty_length)
-        );
-
-        let body = format!(
-            "Press Enter to save, Esc to cancel\n{progress_bar} {elapsed_secs}s / 60s ({progress_percent}%)"
-        );
-
-        debug!("Updating notification progress: {}%", progress_percent);
-
-        if let Some(ref mut handle) = self.handle {
-            // Update the existing notification
-            handle
-                .summary("🎤 Recording Audio")
-                .body(&body)
-                .icon("audio-input-microphone");
-            handle.update();
+        if !self.is_active {
+            return Ok(());
         }
 
+        let elapsed_secs = elapsed.as_secs();
+        let progress_percent =
+            (elapsed_secs as f32 / 60.0 * 100.0).min(100.0) as u32;
+
+        Self::show_progress(progress_percent, elapsed_secs)?;
         Ok(())
     }
 
     pub fn show_completed(&mut self, saved: bool) -> Result<()> {
-        let (summary, body, icon) = if saved {
-            (
-                "✅ Recording Saved",
-                "Audio recording has been saved successfully",
-                "audio-input-microphone",
-            )
+        self.is_active = false;
+
+        let (message, icon) = if saved {
+            ("Recording Saved", "audio-input-microphone")
         } else {
-            (
-                "❌ Recording Cancelled",
-                "Audio recording was cancelled",
-                "dialog-warning",
-            )
+            ("Recording Cancelled", "dialog-warning")
         };
 
         info!("Showing completion notification: saved={}", saved);
 
-        let notification = Notification::new()
-            .summary(summary)
-            .body(body)
-            .icon(icon)
-            .timeout(Timeout::Milliseconds(3000))
-            .show()
-            .context("Failed to show completion notification")?;
+        let status = Command::new("swayosd-client")
+            .args(["--custom-message", message, "--icon", icon])
+            .output()
+            .context("Failed to execute swayosd-client")?;
 
-        self.handle = Some(notification);
+        if !status.status.success() {
+            return Err(anyhow::anyhow!(
+                "swayosd-client failed with status: {}",
+                status.status
+            ));
+        }
+
         Ok(())
     }
 
     pub fn hide(&mut self) {
-        if let Some(handle) = self.handle.take() {
-            // The notification will be automatically cleaned up when handle is dropped
-            drop(handle);
-            debug!("Notification hidden");
+        // No explicit hide needed - swayosd handles this automatically
+        self.is_active = false;
+        debug!("Notification marked as inactive");
+    }
+
+    fn show_progress(percent: u32, elapsed_secs: u64) -> Result<()> {
+        let message = format!("Recording: {elapsed_secs}s / 60s");
+
+        let status = Command::new("swayosd-client")
+            .args([
+                "--custom-progress",
+                &percent.to_string(),
+                "--custom-message",
+                &message,
+                "--icon",
+                "audio-input-microphone",
+            ])
+            .output()
+            .context("Failed to execute swayosd-client")?;
+
+        if !status.status.success() {
+            return Err(anyhow::anyhow!(
+                "swayosd-client failed with status: {}",
+                status.status
+            ));
         }
+
+        Ok(())
     }
 }
 
