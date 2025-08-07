@@ -42,7 +42,7 @@ impl RecordingNotification {
         info!("Showing completion notification: saved={}", saved);
 
         let status = Command::new("swayosd-client")
-            .args(["--custom-message", message, "--icon", icon])
+            .args(["--custom-message", message, "--custom-icon", icon])
             .output()
             .context("Failed to execute swayosd-client")?;
 
@@ -56,12 +56,6 @@ impl RecordingNotification {
         Ok(())
     }
 
-    pub fn hide(&mut self) {
-        // No explicit hide needed - swayosd handles this automatically
-        self.is_active = false;
-        debug!("Notification marked as inactive");
-    }
-
     fn show_progress(percent: u32, elapsed_secs: u64) -> Result<()> {
         let message = format!("Recording: {elapsed_secs}s / 60s");
 
@@ -69,9 +63,9 @@ impl RecordingNotification {
             .args([
                 "--custom-progress",
                 &percent.to_string(),
-                "--custom-message",
+                "--custom-progress-text",
                 &message,
-                "--icon",
+                "--custom-icon",
                 "audio-input-microphone",
             ])
             .output()
@@ -85,11 +79,5 @@ impl RecordingNotification {
         }
 
         Ok(())
-    }
-}
-
-impl Drop for RecordingNotification {
-    fn drop(&mut self) {
-        self.hide();
     }
 }
