@@ -11,12 +11,12 @@ pub enum KeyAction {
     Cancel,
 }
 
-pub struct HyprlandKeyHandler {
+pub struct KeyHandler {
     temp_file: Option<NamedTempFile>,
     bindings_registered: bool,
 }
 
-impl HyprlandKeyHandler {
+impl KeyHandler {
     pub async fn new() -> Result<Self> {
         let runtime_dir =
             env::var("XDG_RUNTIME_DIR").context("XDG_RUNTIME_DIR not set")?;
@@ -51,10 +51,10 @@ impl HyprlandKeyHandler {
         let escape_cmd =
             format!("keyword bind ,Escape,exec,echo 'CANCEL' > {temp_path}");
 
-        self.send_hyprland_command(&enter_cmd)
+        self.send_cmd(&enter_cmd)
             .await
             .context("Failed to register Enter keybinding")?;
-        self.send_hyprland_command(&escape_cmd)
+        self.send_cmd(&escape_cmd)
             .await
             .context("Failed to register Escape keybinding")?;
 
@@ -111,11 +111,11 @@ impl HyprlandKeyHandler {
         let remove_enter = "keyword unbind ,Return";
         let remove_escape = "keyword unbind ,Escape";
 
-        if let Err(e) = self.send_hyprland_command(remove_enter).await {
+        if let Err(e) = self.send_cmd(remove_enter).await {
             warn!("Failed to remove Enter keybinding: {}", e);
         }
 
-        if let Err(e) = self.send_hyprland_command(remove_escape).await {
+        if let Err(e) = self.send_cmd(remove_escape).await {
             warn!("Failed to remove Escape keybinding: {}", e);
         }
 
@@ -126,7 +126,7 @@ impl HyprlandKeyHandler {
         Ok(())
     }
 
-    async fn send_hyprland_command(&self, command: &str) -> Result<String> {
+    async fn send_cmd(&self, command: &str) -> Result<String> {
         debug!("Sending Hyprland command: {}", command);
 
         // Use `hyprctl` to send commands (more reliable than direct socket)
@@ -149,7 +149,7 @@ impl HyprlandKeyHandler {
     }
 }
 
-impl Drop for HyprlandKeyHandler {
+impl Drop for KeyHandler {
     fn drop(&mut self) {
         if self.bindings_registered {
             // Best effort cleanup in blocking context
