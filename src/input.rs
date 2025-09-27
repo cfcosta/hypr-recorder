@@ -1,9 +1,10 @@
 use std::{env, path::PathBuf, time::Duration};
 
-use anyhow::{Context, Result};
 use tempfile::NamedTempFile;
 use tokio::{fs, time::interval};
 use tracing::{debug, info, warn};
+
+use crate::{Error, Result};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum KeyAction {
@@ -18,11 +19,11 @@ pub struct KeyHandler {
 
 impl KeyHandler {
     pub async fn new() -> Result<Self> {
-        let runtime_dir =
-            env::var("XDG_RUNTIME_DIR").context("XDG_RUNTIME_DIR not set")?;
+        let runtime_dir = env::var("XDG_RUNTIME_DIR")
+            .map_err(|_| Error::HyprlandNotRunning)?;
 
         let hyprland_instance = env::var("HYPRLAND_INSTANCE_SIGNATURE")
-            .context("HYPRLAND_INSTANCE_SIGNATURE not set - are you running under Hyprland?")?;
+            .map_err(|_| Error::HyprlandNotRunning)?;
 
         let socket_path = PathBuf::from(runtime_dir)
             .join("hypr")
@@ -41,8 +42,7 @@ impl KeyHandler {
         info!("Registering global keybindings");
 
         // Create temporary file for communication
-        let temp_file =
-            NamedTempFile::new().context("Failed to create temporary file")?;
+        let temp_file = NamedTempFile::new()?;
         let temp_path = temp_file.path().to_string_lossy();
 
         // Register keybindings via Hyprland IPC
@@ -51,12 +51,8 @@ impl KeyHandler {
         let escape_cmd =
             format!("keyword bind ,Escape,exec,echo 'CANCEL' > {temp_path}");
 
-        self.send_cmd(&enter_cmd)
-            .await
-            .context("Failed to register Enter keybinding")?;
-        self.send_cmd(&escape_cmd)
-            .await
-            .context("Failed to register Escape keybinding")?;
+        self.send_cmd(&enter_cmd).await?;
+        self.send_cmd(&escape_cmd).await?;
 
         self.temp_file = Some(temp_file);
         self.bindings_registered = true;
@@ -66,10 +62,7 @@ impl KeyHandler {
     }
 
     pub async fn wait_for_input(&self) -> Result<KeyAction> {
-        let temp_file = self
-            .temp_file
-            .as_ref()
-            .context("Keybindings not registered")?;
+        let temp_file = self.temp_file.as_ref().unwrap();
         let temp_path = temp_file.path();
 
         debug!("Waiting for key input via file: {}", temp_path.display());
@@ -134,12 +127,10 @@ impl KeyHandler {
             .arg("--batch")
             .arg(command)
             .output()
-            .await
-            .context("Failed to execute hyprctl")?;
+            .await?;
 
         if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(anyhow::anyhow!("hyprctl command failed: {}", stderr));
+            return Err(Error::HyprlandNotRunning);
         }
 
         let response = String::from_utf8_lossy(&output.stdout);

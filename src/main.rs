@@ -8,12 +8,35 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::{Context, Result};
 use audio::AudioRecorder;
 use input::{KeyAction, KeyHandler};
 use notification::RecordingNotification;
 use tokio::time::{interval, sleep};
 use tracing::{error, info, warn};
+
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("Build stream error: {0}")]
+    BuildStream(#[from] cpal::BuildStreamError),
+    #[error("Default stream config error: {0}")]
+    DefaultStreamConfig(#[from] cpal::DefaultStreamConfigError),
+    #[error("Device name error: {0}")]
+    DeviceName(#[from] cpal::DeviceNameError),
+    #[error("Hyprland is required but not running")]
+    HyprlandNotRunning,
+    #[error("Hound error: {0}")]
+    Hound(#[from] hound::Error),
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("Missing input device: {0}")]
+    MissingInputDevice(String),
+    #[error("Notification error: {0}")]
+    Notification(String),
+    #[error("Play stream error: {0}")]
+    PlayStream(#[from] cpal::PlayStreamError),
+}
+
+pub type Result<T> = std::result::Result<T, Error>;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -25,28 +48,22 @@ async fn main() -> Result<()> {
         error!(
             "This application requires Hyprland. Please run it under Hyprland."
         );
-        return Err(anyhow::anyhow!("Not running under Hyprland"));
+
+        return Err(Error::HyprlandNotRunning);
     }
 
-    let mut recorder =
-        AudioRecorder::new().context("Failed to initialize audio recorder")?;
+    let mut recorder = AudioRecorder::new()?;
 
-    let mut notification =
-        RecordingNotification::show().context("Failed to show notification")?;
+    let mut notification = RecordingNotification::show()?;
 
-    let mut key_handler = KeyHandler::new()
-        .await
-        .context("Failed to initialize key handler")?;
+    let mut key_handler = KeyHandler::new().await?;
 
     if let Err(e) = key_handler.register_bindings().await {
         error!("Failed to register keybindings: {}", e);
-        return Err(e);
+        return Err(e.into());
     }
 
-    recorder
-        .start_recording()
-        .await
-        .context("Failed to start recording")?;
+    recorder.start_recording().await?;
 
     info!("Recording started. Press Enter to save, Esc to cancel.");
 
@@ -109,15 +126,11 @@ async fn save_recording(
 ) -> Result<()> {
     info!("Saving recording...");
 
-    let samples = recorder
-        .stop_recording()
-        .context("Failed to stop recording")?;
+    let samples = recorder.stop_recording()?;
 
     if samples.is_empty() {
         warn!("No audio data recorded");
-        notification
-            .show_completed(false)
-            .context("Failed to show completion notification")?;
+        notification.show_completed(false)?;
         return Ok(());
     }
 
@@ -134,15 +147,11 @@ async fn save_recording(
         )
         .join(&filename);
 
-    recorder
-        .save_to_file(&samples, &output_path)
-        .context("Failed to save audio file")?;
+    recorder.save_to_file(&samples, &output_path)?;
 
     info!("Recording saved to: {}", output_path.display());
 
-    notification
-        .show_completed(true)
-        .context("Failed to show completion notification")?;
+    notification.show_completed(true)?;
 
     sleep(Duration::from_secs(2)).await;
 
@@ -157,9 +166,7 @@ async fn cancel_recording(
 
     let _ = recorder.stop_recording();
 
-    notification
-        .show_completed(false)
-        .context("Failed to show completion notification")?;
+    notification.show_completed(false)?;
 
     sleep(Duration::from_secs(1)).await;
 

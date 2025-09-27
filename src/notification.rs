@@ -1,7 +1,8 @@
 use std::{process::Command, time::Duration};
 
-use anyhow::{Context, Result};
 use tracing::info;
+
+use crate::{Error, Result};
 
 pub struct RecordingNotification {
     is_active: bool,
@@ -43,14 +44,13 @@ impl RecordingNotification {
 
         let status = Command::new("swayosd-client")
             .args(["--custom-message", message, "--custom-icon", icon])
-            .output()
-            .context("Failed to execute swayosd-client")?;
+            .output()?;
 
         if !status.status.success() {
-            return Err(anyhow::anyhow!(
+            return Err(Error::Notification(format!(
                 "swayosd-client failed with status: {}",
                 status.status
-            ));
+            )));
         }
 
         Ok(())
@@ -68,14 +68,13 @@ impl RecordingNotification {
                 "--custom-icon",
                 "audio-input-microphone",
             ])
-            .output()
-            .context("Failed to execute swayosd-client")?;
+            .output()?;
 
         if !status.status.success() {
-            return Err(anyhow::anyhow!(
+            return Err(Error::Notification(format!(
                 "swayosd-client failed with status: {}",
                 status.status
-            ));
+            )));
         }
 
         Ok(())

@@ -10,7 +10,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::{Context, Result};
 use cpal::{
     Device,
     Stream,
@@ -20,6 +19,8 @@ use cpal::{
 use hound::{WavSpec, WavWriter};
 use tokio::time::sleep;
 use tracing::{debug, error, info};
+
+use crate::{Error, Result};
 
 pub struct AudioRecorder {
     device: Device,
@@ -33,16 +34,15 @@ pub struct AudioRecorder {
 impl AudioRecorder {
     pub fn new() -> Result<Self> {
         let host = cpal::default_host();
-        let device = host
-            .default_input_device()
-            .context("No input device available")?;
+        let device =
+            host.default_input_device()
+                .ok_or(Error::MissingInputDevice(format!(
+                    "Missing recorder input device"
+                )))?;
 
         info!("Using input device: {}", device.name()?);
 
-        let config = device
-            .default_input_config()
-            .context("Failed to get default input config")?
-            .into();
+        let config = device.default_input_config()?.into();
 
         debug!("Input config: {:?}", config);
 
