@@ -105,6 +105,7 @@
 
             postInstall = ''
               wrapProgram $out/bin/hypr-recorder \
+                --set WHISPER_COMMAND ${whisper}/bin/whisper-cli \
                 --prefix PATH : ${
                   lib.makeBinPath [
                     pkgs.swayosd
