@@ -4,9 +4,8 @@ use std::{
 };
 
 use tokio::fs;
-use tracing::{debug, info};
 
-use crate::{Error, Result, utils::run_async};
+use crate::{utils::run_async, Error, Result};
 
 #[derive(Debug, Clone)]
 pub struct Transcriber {
@@ -49,7 +48,7 @@ impl Transcriber {
         let mut expected = audio_path.to_path_buf();
         expected.set_extension("txt");
 
-        info!(path = %audio_path.display(), "Transcribing recording");
+        println!("Transcribing recording: {}", audio_path.display());
 
         let mut args = Vec::new();
         args.push(audio_path.to_string_lossy().to_string());
@@ -71,7 +70,7 @@ impl Transcriber {
 
         args.extend(self.extra_args.clone());
 
-        debug!("Running Whisper command: {} {:?}", &self.command, &args);
+        println!("Running Whisper command: {} {:?}", &self.command, &args);
 
         let output =
             run_async!(&self.command; &args).map_err(|err| match err {
@@ -120,7 +119,7 @@ impl Transcriber {
             }
         }
 
-        info!("Transcript ready: {}", expected.display());
+        println!("Transcript ready: {}", expected.display());
 
         Ok(expected)
     }

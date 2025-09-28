@@ -3,22 +3,21 @@ use std::{
     io::BufWriter,
     path::Path,
     sync::{
+        atomic::{AtomicBool, Ordering},
         Arc,
         Mutex,
-        atomic::{AtomicBool, Ordering},
     },
     time::{Duration, Instant},
 };
 
 use cpal::{
+    traits::{DeviceTrait, HostTrait, StreamTrait},
     Device,
     Stream,
     StreamConfig,
-    traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 use hound::{WavSpec, WavWriter};
 use tokio::{task::JoinHandle, time::sleep};
-use tracing::{debug, error, info};
 
 use crate::{Error, Result};
 
@@ -41,11 +40,11 @@ impl Recorder {
                     "Missing recorder input device".to_string(),
                 ))?;
 
-        info!("Using input device: {}", device.name()?);
+        println!("Using input device: {}", device.name()?);
 
         let config = device.default_input_config()?.into();
 
-        debug!("Input config: {:?}", config);
+        println!("Input config: {:?}", config);
 
         Ok(Self {
             device,
@@ -59,7 +58,7 @@ impl Recorder {
     }
 
     pub async fn start(&mut self) -> Result<()> {
-        info!("Starting audio recording...");
+        println!("Starting audio recording...");
 
         if let Some(handle) = self.timeout_task.take() {
             handle.abort();
@@ -82,7 +81,7 @@ impl Recorder {
                 }
             },
             |err| {
-                error!("Audio stream error: {}", err);
+                eprintln!("Audio stream error: {}", err);
             },
             None,
         )?;
@@ -94,7 +93,7 @@ impl Recorder {
         self.timeout_task = Some(tokio::spawn(async move {
             sleep(Duration::from_secs(60)).await;
             if is_recording_timeout.swap(false, Ordering::Relaxed) {
-                info!("Recording stopped due to 1-minute timeout");
+                println!("Recording stopped due to 1-minute timeout");
             }
         }));
 
@@ -102,7 +101,7 @@ impl Recorder {
     }
 
     pub fn stop(&mut self) -> Result<Vec<f32>> {
-        info!("Stopping audio recording...");
+        println!("Stopping audio recording...");
 
         self.is_recording.store(false, Ordering::Relaxed);
 
@@ -115,7 +114,7 @@ impl Recorder {
         }
 
         let samples = self.samples.lock().unwrap().clone();
-        info!("Recorded {} samples", samples.len());
+        println!("Recorded {} samples", samples.len());
 
         Ok(samples)
     }
@@ -136,7 +135,7 @@ impl Recorder {
         }
 
         writer.finalize()?;
-        info!("Audio saved to: {}", path.as_ref().display());
+        println!("Audio saved to: {}", path.as_ref().display());
 
         Ok(())
     }

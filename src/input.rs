@@ -2,12 +2,11 @@ use std::{env, path::PathBuf, time::Duration};
 
 use tempfile::NamedTempFile;
 use tokio::{fs, time::interval};
-use tracing::{debug, info, warn};
 
 use crate::{
+    utils::{run, run_async},
     Error,
     Result,
-    utils::{run, run_async},
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -34,7 +33,7 @@ impl Input {
             .join(&hyprland_instance)
             .join(".socket.sock");
 
-        info!("Using Hyprland socket: {}", socket_path.display());
+        println!("Using Hyprland socket: {}", socket_path.display());
 
         Ok(Self {
             temp_file: None,
@@ -43,7 +42,7 @@ impl Input {
     }
 
     pub async fn register(&mut self) -> Result<()> {
-        info!("Registering global keybindings");
+        println!("Registering global keybindings");
 
         let temp_file = NamedTempFile::new()?;
         let temp_path = temp_file.path().to_string_lossy();
@@ -59,15 +58,13 @@ impl Input {
         self.temp_file = Some(temp_file);
         self.bindings_registered = true;
 
-        info!("Global keybindings registered successfully");
+        println!("Global keybindings registered successfully");
         Ok(())
     }
 
     pub async fn wait_for_input(&self) -> Result<Action> {
         let temp_file = self.temp_file.as_ref().unwrap();
         let temp_path = temp_file.path();
-
-        debug!("Waiting for key input via file: {}", temp_path.display());
 
         let mut interval = interval(Duration::from_millis(50));
 
@@ -77,16 +74,13 @@ impl Input {
             if let Ok(content) = fs::read_to_string(temp_path).await {
                 let content = content.trim();
                 if !content.is_empty() {
-                    debug!("Received key input: {}", content);
-
-                    // Clear the file for next input
                     let _ = fs::write(temp_path, "").await;
 
                     match content {
                         "SAVE" => return Ok(Action::Save),
                         "CANCEL" => return Ok(Action::Cancel),
                         _ => {
-                            warn!("Unknown key action: {}", content);
+                            eprintln!("Unknown key action: {}", content);
                             continue;
                         }
                     }
@@ -100,7 +94,7 @@ impl Input {
             return Ok(());
         }
 
-        info!("Cleaning up global keybindings");
+        println!("Cleaning up global keybindings");
 
         let remove_enter = "keyword unbind ,Return";
         let remove_escape = "keyword unbind ,Escape";
@@ -108,17 +102,17 @@ impl Input {
         let mut had_error = false;
 
         if let Err(e) = self.cmd(remove_enter).await {
-            warn!("Failed to remove Enter keybinding asynchronously: {}", e);
+            eprintln!("Failed to remove Enter keybinding asynchronously: {}", e);
             had_error = true;
         }
 
         if let Err(e) = self.cmd(remove_escape).await {
-            warn!("Failed to remove Escape keybinding asynchronously: {}", e);
+            eprintln!("Failed to remove Escape keybinding asynchronously: {}", e);
             had_error = true;
         }
 
         if had_error {
-            warn!("Falling back to blocking keybinding cleanup");
+            eprintln!("Falling back to blocking keybinding cleanup");
             self.cleanup_blocking();
         } else {
             self.finish_cleanup();
@@ -128,8 +122,6 @@ impl Input {
     }
 
     async fn cmd(&self, command: &str) -> Result<String> {
-        debug!("Sending Hyprland command: {}", command);
-
         // Use `hyprctl` to send commands (more reliable than direct socket)
         let output = run_async!("hyprctl", "--batch", command)?;
 
@@ -138,7 +130,6 @@ impl Input {
         }
 
         let response = output.stdout;
-        debug!("Hyprland response: {}", response);
 
         Ok(response)
     }
@@ -153,7 +144,7 @@ impl Input {
             ("keyword unbind ,Escape", "Escape"),
         ] {
             if let Err(e) = Self::cmd_blocking(command) {
-                warn!(
+                eprintln!(
                     "Failed to remove {name} keybinding in blocking fallback: {}",
                     e
                 );
@@ -166,12 +157,10 @@ impl Input {
     fn finish_cleanup(&mut self) {
         self.bindings_registered = false;
         self.temp_file = None;
-        info!("Keybinding cleanup completed");
+        println!("Keybinding cleanup completed");
     }
 
     fn cmd_blocking(command: &str) -> Result<String> {
-        debug!("Sending Hyprland command (blocking): {}", command);
-
         let output = run!("hyprctl", "--batch", command)?;
 
         if output.is_failure() {
@@ -179,7 +168,6 @@ impl Input {
         }
 
         let response = output.stdout;
-        debug!("Hyprland response (blocking): {}", response);
 
         Ok(response)
     }

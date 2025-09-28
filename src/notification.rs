@@ -1,6 +1,5 @@
 use std::time::Duration;
 
-use tracing::info;
 
 use crate::{Error, Result, utils::run};
 
@@ -10,7 +9,7 @@ pub struct Notification {
 
 impl Notification {
     pub fn show() -> Result<Self> {
-        info!("Showing recording notification via swayosd");
+        println!("Showing recording notification via swayosd");
 
         Self::show_progress(0, 0)?;
 
@@ -39,7 +38,7 @@ impl Notification {
             ("Recording Cancelled", "dialog-warning")
         };
 
-        info!("Showing completion notification: saved={}", saved);
+        println!("Showing completion notification: saved={}", saved);
 
         let output = run!(
             "swayosd-client",
