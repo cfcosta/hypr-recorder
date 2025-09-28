@@ -1,10 +1,14 @@
-use std::{env, path::PathBuf, process::Command as StdCommand, time::Duration};
+use std::{env, path::PathBuf, time::Duration};
 
 use tempfile::NamedTempFile;
 use tokio::{fs, time::interval};
 use tracing::{debug, info, warn};
 
-use crate::{Error, Result};
+use crate::{
+    Error,
+    Result,
+    utils::{run, run_async},
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
@@ -127,20 +131,16 @@ impl Input {
         debug!("Sending Hyprland command: {}", command);
 
         // Use `hyprctl` to send commands (more reliable than direct socket)
-        let output = tokio::process::Command::new("hyprctl")
-            .arg("--batch")
-            .arg(command)
-            .output()
-            .await?;
+        let output = run_async!("hyprctl", "--batch", command)?;
 
-        if !output.status.success() {
+        if output.is_failure() {
             return Err(Error::HyprlandNotRunning);
         }
 
-        let response = String::from_utf8_lossy(&output.stdout);
+        let response = output.stdout;
         debug!("Hyprland response: {}", response);
 
-        Ok(response.to_string())
+        Ok(response)
     }
 
     fn cleanup_blocking(&mut self) {
@@ -172,19 +172,16 @@ impl Input {
     fn cmd_blocking(command: &str) -> Result<String> {
         debug!("Sending Hyprland command (blocking): {}", command);
 
-        let output = StdCommand::new("hyprctl")
-            .arg("--batch")
-            .arg(command)
-            .output()?;
+        let output = run!("hyprctl", "--batch", command)?;
 
-        if !output.status.success() {
+        if output.is_failure() {
             return Err(Error::HyprlandNotRunning);
         }
 
-        let response = String::from_utf8_lossy(&output.stdout);
+        let response = output.stdout;
         debug!("Hyprland response (blocking): {}", response);
 
-        Ok(response.to_string())
+        Ok(response)
     }
 }
 

@@ -3,6 +3,7 @@ mod input;
 mod notification;
 mod recorder;
 mod transcriber;
+mod utils;
 
 use std::{
     env,

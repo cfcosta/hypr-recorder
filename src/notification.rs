@@ -1,8 +1,8 @@
-use std::{process::Command, time::Duration};
+use std::time::Duration;
 
 use tracing::info;
 
-use crate::{Error, Result};
+use crate::{Error, Result, utils::run};
 
 pub struct Notification {
     is_active: bool,
@@ -41,14 +41,19 @@ impl Notification {
 
         info!("Showing completion notification: saved={}", saved);
 
-        let status = Command::new("swayosd-client")
-            .args(["--custom-message", message, "--custom-icon", icon])
-            .output()?;
+        let output = run!(
+            "swayosd-client",
+            "--custom-message",
+            message,
+            "--custom-icon",
+            icon
+        )?;
 
-        if !status.status.success() {
+        if output.is_failure() {
             return Err(Error::Notification(format!(
-                "swayosd-client failed with status: {}",
-                status.status
+                "swayosd-client failed with status {}: {}",
+                output.status,
+                output.stderr.trim()
             )));
         }
 
@@ -58,21 +63,23 @@ impl Notification {
     fn show_progress(percent: u32, elapsed_secs: u64) -> Result<()> {
         let message = format!("Recording: {elapsed_secs}s / 60s");
 
-        let status = Command::new("swayosd-client")
-            .args([
-                "--custom-progress",
-                &percent.to_string(),
-                "--custom-progress-text",
-                &message,
-                "--custom-icon",
-                "audio-input-microphone",
-            ])
-            .output()?;
+        let progress = percent.to_string();
 
-        if !status.status.success() {
+        let output = run!(
+            "swayosd-client",
+            "--custom-progress",
+            progress,
+            "--custom-progress-text",
+            &message,
+            "--custom-icon",
+            "audio-input-microphone"
+        )?;
+
+        if output.is_failure() {
             return Err(Error::Notification(format!(
-                "swayosd-client failed with status: {}",
-                status.status
+                "swayosd-client failed with status {}: {}",
+                output.status,
+                output.stderr.trim()
             )));
         }
 

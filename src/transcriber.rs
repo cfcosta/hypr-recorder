@@ -3,10 +3,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use tokio::{fs, process::Command};
+use tokio::fs;
 use tracing::{debug, info};
 
-use crate::{Error, Result};
+use crate::{Error, Result, utils::run_async};
 
 #[derive(Debug, Clone)]
 pub struct Transcriber {
@@ -73,18 +73,19 @@ impl Transcriber {
 
         debug!("Running Whisper command: {} {:?}", &self.command, &args);
 
-        let mut command = Command::new(&self.command);
-        command.args(&args);
+        let output =
+            run_async!(&self.command; &args).map_err(|err| match err {
+                Error::Io(inner) => Error::Transcription(format!(
+                    "Failed to run Whisper: {inner}"
+                )),
+                other => other,
+            })?;
 
-        let output = command.output().await.map_err(|err| {
-            Error::Transcription(format!("Failed to run Whisper: {err}"))
-        })?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
+        if output.is_failure() {
             return Err(Error::Transcription(format!(
                 "Whisper exited with status {}: {}",
-                output.status, stderr
+                output.status,
+                output.stderr.trim()
             )));
         }
 
@@ -109,12 +110,11 @@ impl Transcriber {
                     })?;
                 }
                 Err(e) => {
-                    let stdout = String::from_utf8_lossy(&output.stdout);
                     return Err(Error::Transcription(format!(
                         "Whisper did not produce a transcript at {}. Error: {}, Stdout: {}",
                         e,
                         expected.display(),
-                        stdout.trim()
+                        output.stdout.trim()
                     )));
                 }
             }
