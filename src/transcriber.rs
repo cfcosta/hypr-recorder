@@ -117,7 +117,7 @@ impl Transcriber {
                     let stdout = String::from_utf8_lossy(&output.stdout);
                     return Err(Error::Transcription(format!(
                         "Whisper did not produce a transcript at {}. Error: {}, Stdout: {}",
-                        e.to_string(),
+                        e,
                         expected_transcript.display(),
                         stdout.trim()
                     )));

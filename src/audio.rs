@@ -17,7 +17,7 @@ use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 use hound::{WavSpec, WavWriter};
-use tokio::time::sleep;
+use tokio::{task::JoinHandle, time::sleep};
 use tracing::{debug, error, info};
 
 use crate::{Error, Result};
@@ -29,6 +29,7 @@ pub struct AudioRecorder {
     is_recording: Arc<AtomicBool>,
     stream: Option<Stream>,
     start_time: Option<Instant>,
+    timeout_task: Option<JoinHandle<()>>,
 }
 
 impl AudioRecorder {
@@ -53,11 +54,16 @@ impl AudioRecorder {
             is_recording: Arc::new(AtomicBool::new(false)),
             stream: None,
             start_time: None,
+            timeout_task: None,
         })
     }
 
     pub async fn start_recording(&mut self) -> Result<()> {
         info!("Starting audio recording...");
+
+        if let Some(handle) = self.timeout_task.take() {
+            handle.abort();
+        }
 
         let samples = Arc::clone(&self.samples);
         let is_recording = Arc::clone(&self.is_recording);
@@ -86,11 +92,12 @@ impl AudioRecorder {
 
         // Start timeout task
         let is_recording_timeout = Arc::clone(&self.is_recording);
-        tokio::spawn(async move {
+        self.timeout_task = Some(tokio::spawn(async move {
             sleep(Duration::from_secs(60)).await;
-            is_recording_timeout.store(false, Ordering::Relaxed);
-            info!("Recording stopped due to 1-minute timeout");
-        });
+            if is_recording_timeout.swap(false, Ordering::Relaxed) {
+                info!("Recording stopped due to 1-minute timeout");
+            }
+        }));
 
         Ok(())
     }
@@ -99,6 +106,10 @@ impl AudioRecorder {
         info!("Stopping audio recording...");
 
         self.is_recording.store(false, Ordering::Relaxed);
+
+        if let Some(handle) = self.timeout_task.take() {
+            handle.abort();
+        }
 
         if let Some(stream) = self.stream.take() {
             drop(stream);
