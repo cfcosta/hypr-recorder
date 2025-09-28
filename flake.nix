@@ -31,8 +31,9 @@
         pkgs = import nixpkgs {
           inherit system;
           overlays = [ (import rust-overlay) ];
+          config.allowUnfree = true;
         };
-        inherit (pkgs) mkShell;
+        inherit (pkgs) lib mkShell;
 
         rust = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
 
@@ -81,20 +82,37 @@
           };
         };
 
-        packages.default = rustPlatform.buildRustPackage {
-          name = "hypr-recorder";
-          src = ./.;
-          cargoLock.lockFile = ./Cargo.lock;
-          buildInputs = with pkgs; [
-            alsa-lib
-            libinput
-            libudev-zero
-            whisper-cpp
-          ];
-          nativeBuildInputs = with pkgs; [
-            pkg-config
-          ];
-        };
+        packages.default =
+          let
+            whisper = pkgs.whisper-cpp.override { cudaSupport = true; };
+          in
+          rustPlatform.buildRustPackage {
+            name = "hypr-recorder";
+            src = ./.;
+            cargoLock.lockFile = ./Cargo.lock;
+            buildInputs = [
+              pkgs.alsa-lib
+              pkgs.libinput
+              pkgs.libudev-zero
+              pkgs.swayosd
+
+              whisper
+            ];
+            nativeBuildInputs = with pkgs; [
+              pkg-config
+              makeWrapper
+            ];
+
+            postInstall = ''
+              wrapProgram $out/bin/hypr-recorder \
+                --prefix PATH : ${
+                  lib.makeBinPath [
+                    pkgs.swayosd
+                    whisper
+                  ]
+                }
+            '';
+          };
       in
       {
         inherit packages;
@@ -116,7 +134,7 @@
             alsa-lib
             python3Packages.openai-whisper
             libinput
-            whisper-cpp
+            (whisper-cpp.override { cudaSupport = true; })
           ];
         };
       }
