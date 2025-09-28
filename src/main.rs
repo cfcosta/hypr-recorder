@@ -2,6 +2,7 @@ mod audio;
 mod error;
 mod input;
 mod notification;
+mod transcriber;
 
 use std::{
     env,
@@ -14,6 +15,7 @@ use input::{KeyAction, KeyHandler};
 use notification::RecordingNotification;
 use tokio::time::{interval, sleep};
 use tracing::{error, info, warn};
+use transcriber::Transcriber;
 
 pub use crate::error::*;
 
@@ -37,6 +39,8 @@ async fn main() -> Result<()> {
 
     let mut key_handler = KeyHandler::new().await?;
 
+    let transcriber = Transcriber::new();
+
     if let Err(e) = key_handler.register_bindings().await {
         error!("Failed to register keybindings: {}", e);
         return Err(e);
@@ -57,7 +61,8 @@ async fn main() -> Result<()> {
 
                 if elapsed >= Duration::from_secs(60) {
                     info!("Recording reached 1-minute limit, auto-saving");
-                    break save_recording(&mut recorder, &mut notification).await;
+                    break save_recording(&mut recorder, &mut notification, &transcriber)
+                        .await;
                 }
 
                 if last_update.elapsed() >= Duration::from_millis(100) {
@@ -69,7 +74,8 @@ async fn main() -> Result<()> {
 
                 if !recorder.is_recording() {
                     info!("Recording stopped externally");
-                    break save_recording(&mut recorder, &mut notification).await;
+                    break save_recording(&mut recorder, &mut notification, &transcriber)
+                        .await;
                 }
             }
 
@@ -77,7 +83,8 @@ async fn main() -> Result<()> {
                 match key_result {
                     Ok(KeyAction::Save) => {
                         info!("Save key pressed");
-                        break save_recording(&mut recorder, &mut notification).await;
+                        break save_recording(&mut recorder, &mut notification, &transcriber)
+                            .await;
                     }
                     Ok(KeyAction::Cancel) => {
                         info!("Cancel key pressed");
@@ -102,6 +109,7 @@ async fn main() -> Result<()> {
 async fn save_recording(
     recorder: &mut AudioRecorder,
     notification: &mut RecordingNotification,
+    transcriber: &Transcriber,
 ) -> Result<()> {
     info!("Saving recording...");
 
@@ -129,6 +137,17 @@ async fn save_recording(
     recorder.save_to_file(&samples, &output_path)?;
 
     info!("Recording saved to: {}", output_path.display());
+
+    let transcript_path = match transcriber.transcribe(&output_path).await {
+        Ok(path) => path,
+        Err(e) => {
+            error!("Failed to transcribe recording: {}", e);
+            let _ = notification.show_completed(false);
+            return Err(e);
+        }
+    };
+
+    info!("Transcription saved to: {}", transcript_path.display());
 
     notification.show_completed(true)?;
 

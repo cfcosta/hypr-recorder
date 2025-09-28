@@ -107,6 +107,7 @@
             alsa-lib
             python3Packages.openai-whisper
             libinput
+            whisper-cpp
           ];
         };
       }

@@ -18,6 +18,8 @@ pub enum Error {
     Notification(String),
     #[error("Play stream error: {0}")]
     PlayStream(#[from] cpal::PlayStreamError),
+    #[error("Transcription error: {0}")]
+    Transcription(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
