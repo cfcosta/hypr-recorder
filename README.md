@@ -1,22 +1,22 @@
-# Whisper-thing Audio Recorder
+# Whisper-thing Capture
 
-A Rust tool for recording audio with visual feedback and global keybindings on Hyprland/Wayland.
+PipeWire-based audio + screen recorder with visual feedback and Hyprland-friendly controls.
 
 ## Features
 
-- **One-click recording**: Start recording immediately when launched
-- **Global keybindings**: Press Enter to save or Esc to cancel from anywhere in Hyprland
-- **Visual feedback**: Real-time progress notifications via swayosd
-- **Auto-timeout**: Automatically saves after 1 minute
-- **High-quality audio**: Records 32-bit float WAV files from default microphone
-- **Timestamped files**: Saves recordings with timestamp in filename
+- **Immediate capture**: Starts recording the active monitor and microphone as soon as it launches
+- **Global keybindings**: Press Enter to save or Esc to cancel from any Hyprland workspace
+- **Visual feedback**: Progress notifications via swayosd with 60-second auto-stop
+- **PipeWire pipeline**: Uses the XDG desktop portal + PipeWire to capture the monitor and audio directly
+- **H.264 + AAC output**: Encodes to MP4 (`capture_YYYYMMDD_HHMMSS.mp4`) ready for sharing or transcription
 
 ## Requirements
 
-- **Hyprland** window manager (required for global keybindings)
+- **Hyprland** window manager (for keybinding registration)
 - **swayosd** for progress notifications
 - **hyprctl** for Hyprland IPC communication
-- Audio input device (microphone)
+- **PipeWire** with a working XDG desktop portal implementation (e.g. `xdg-desktop-portal-wlr`)
+- **GStreamer** runtime with plugins: base/good/bad/ugly, libav (provides `x264enc` + `avenc_aac`)
 
 ## Installation
 
@@ -30,25 +30,28 @@ cargo build --release
 cargo run
 ```
 
-The application will:
-1. Start recording immediately from your default microphone
-2. Show a progress notification with elapsed time
-3. Wait for your input:
-   - **Enter**: Save the recording
-   - **Escape**: Cancel and discard the recording
-   - **Auto-save**: After 60 seconds
+Launching the binary will:
+1. Ask the Wayland portal for monitor + audio capture permission
+2. Start the PipeWire → GStreamer pipeline immediately after approval
+3. Display a swayosd progress notification with elapsed time
+4. Listen for global keybindings:
+   - **Enter** → stop, mux to MP4, kick off Whisper transcription
+   - **Escape** → stop and discard the capture
+   - **Auto-save** → stop automatically at 60 seconds if you forget
 
-Recordings are saved as `recording_YYYYMMDD_HHMMSS.wav` in the current directory.
+Recordings are stored in `~/Recordings/capture_YYYYMMDD_HHMMSS.mp4`. A transcript (`.txt`) is written next to the MP4 when Whisper succeeds.
 
 ## Architecture
 
 ### Project Structure
 ```
 src/
-├── main.rs           # Entry point and main event loop
-├── audio.rs          # Audio recording with cpal and hound
-├── input.rs          # Hyprland global keybinding management
-└── notification.rs   # swayosd progress notifications
+├── main.rs         # Entry point and async event loop coordination
+├── recorder.rs     # PipeWire portal negotiation + GStreamer pipeline management
+├── input.rs        # Hyprland global keybinding registration/polling
+├── notification.rs # swayosd progress toasts
+├── transcriber.rs  # Whisper CLI orchestration
+└── utils.rs        # Process helpers/macros
 ```
 
 ### Key Dependencies
@@ -60,25 +63,23 @@ src/
 
 ### Technical Details
 
-#### Audio Recording
-- Uses `cpal` to capture from the default input device
-- Records 32-bit float samples at device's native sample rate
-- Buffers audio in memory with atomic synchronization
-- Saves as WAV using `hound` with proper audio specifications
+#### Capture Pipeline
+- Negotiates monitor + audio nodes through the XDG desktop portal (`ashpd`)
+- Shares the PipeWire remote with two `pipewiresrc` elements (video + audio)
+- Encodes video using `x264enc` and audio with `avenc_aac`
+- Writes an MP4 container via `mp4mux`
 
 #### Global Keybindings
 - Registers temporary Hyprland keybindings via `hyprctl --batch`
-- Uses temporary files for IPC communication between processes
-- Automatically cleans up bindings on exit or error
-- Polls file system for key events (50ms intervals)
+- Uses a temporary file to communicate key presses back into the async loop
+- Cleans up bindings on every exit path
 
 #### Progress Notifications
 - Integrates with swayosd for consistent Wayland notifications
-- Updates progress bar every 500ms to show recording duration
-- Shows completion status (saved/cancelled) with appropriate icons
-- Throttled updates for performance
+- Updates progress every ~100 ms while recording is active
+- Signals success/failure at the end of each session
 
 #### Event Loop
-- Async coordination using `tokio::select!`
-- Handles audio recording, progress updates, and key input concurrently
-- Graceful cleanup on all exit paths
+- Coordinates capture, key input, notifications, and Whisper transcription using `tokio::select!`
+- Applies a 60-second safety timeout to avoid runaway recordings
+- Ensures all temporary resources are released before exit

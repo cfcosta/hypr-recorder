@@ -7,8 +7,7 @@ mod utils;
 
 use std::{
     env,
-    path::PathBuf,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant},
 };
 
 use input::{Action, Input};
@@ -31,7 +30,7 @@ async fn main() -> Result<()> {
         return Err(Error::HyprlandNotRunning);
     }
 
-    let mut recorder = Recorder::new()?;
+    let mut recorder = Recorder::new().await?;
 
     let mut notification = Notification::show()?;
 
@@ -49,13 +48,12 @@ async fn main() -> Result<()> {
     println!("Recording started. Press Enter to save, Esc to cancel.");
 
     let mut progress_interval = interval(Duration::from_millis(50));
-    let start_time = Instant::now();
     let mut last_update = Instant::now();
 
     let result = loop {
         tokio::select! {
             _ = progress_interval.tick() => {
-                let elapsed = start_time.elapsed();
+                let elapsed = recorder.elapsed().unwrap_or_default();
 
                 if elapsed >= Duration::from_secs(60) {
                     println!("Recording reached 1-minute limit, auto-saving");
@@ -138,35 +136,18 @@ async fn save_recording(
 ) -> Result<()> {
     println!("Saving recording...");
 
-    let samples = recorder.stop()?;
+    let recording_path = match recorder.stop().await? {
+        Some(path) => path,
+        None => {
+            eprintln!("Recording did not produce any data");
+            notification.complete(false)?;
+            return Ok(());
+        }
+    };
 
-    if samples.is_empty() {
-        eprintln!("No audio data recorded");
-        notification.complete(false)?;
-        return Ok(());
-    }
+    println!("Recording saved to: {}", recording_path.display());
 
-    let timestamp_ms = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    let filename = format!("recording_{timestamp_ms}.wav");
-
-    let output_path = env::home_dir()
-        .map(|d| d.join("Recordings"))
-        .or(env::current_dir().ok())
-        .unwrap_or(
-            env::var("HOME")
-                .map(PathBuf::from)
-                .unwrap_or_else(|_| PathBuf::from("/tmp")),
-        )
-        .join(&filename);
-
-    recorder.save(&samples, &output_path)?;
-
-    println!("Recording saved to: {}", output_path.display());
-
-    let transcript_path = match transcriber.start(&output_path).await {
+    let transcript_path = match transcriber.start(&recording_path).await {
         Ok(path) => path,
         Err(e) => {
             eprintln!("Failed to transcribe recording: {}", e);
@@ -190,7 +171,7 @@ async fn cancel_recording(
 ) -> Result<()> {
     println!("Cancelling recording...");
 
-    let _ = recorder.stop();
+    recorder.cancel().await?;
 
     notification.complete(false)?;
 

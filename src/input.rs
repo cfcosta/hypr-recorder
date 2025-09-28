@@ -4,9 +4,9 @@ use tempfile::NamedTempFile;
 use tokio::{fs, time::interval};
 
 use crate::{
-    utils::{run, run_async},
     Error,
     Result,
+    utils::{run, run_async},
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -102,12 +102,18 @@ impl Input {
         let mut had_error = false;
 
         if let Err(e) = self.cmd(remove_enter).await {
-            eprintln!("Failed to remove Enter keybinding asynchronously: {}", e);
+            eprintln!(
+                "Failed to remove Enter keybinding asynchronously: {}",
+                e
+            );
             had_error = true;
         }
 
         if let Err(e) = self.cmd(remove_escape).await {
-            eprintln!("Failed to remove Escape keybinding asynchronously: {}", e);
+            eprintln!(
+                "Failed to remove Escape keybinding asynchronously: {}",
+                e
+            );
             had_error = true;
         }
 

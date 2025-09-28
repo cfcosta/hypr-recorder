@@ -91,10 +91,16 @@
             src = ./.;
             cargoLock.lockFile = ./Cargo.lock;
             buildInputs = [
-              pkgs.alsa-lib
+              pkgs.pipewire
               pkgs.libinput
               pkgs.libudev-zero
               pkgs.swayosd
+              pkgs.gst_all_1.gstreamer
+              pkgs.gst_all_1.gst-plugins-base
+              pkgs.gst_all_1.gst-plugins-good
+              pkgs.gst_all_1.gst-plugins-bad
+              pkgs.gst_all_1.gst-plugins-ugly
+              pkgs.gst_all_1.gst-libav
 
               whisper
             ];
@@ -132,7 +138,13 @@
             cargo-nextest
             cargo-watch
             pkg-config
-            alsa-lib
+            pipewire
+            gst_all_1.gstreamer
+            gst_all_1.gst-plugins-base
+            gst_all_1.gst-plugins-good
+            gst_all_1.gst-plugins-bad
+            gst_all_1.gst-plugins-ugly
+            gst_all_1.gst-libav
             python3Packages.openai-whisper
             libinput
             (whisper-cpp.override { cudaSupport = true; })

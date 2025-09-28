@@ -1,6 +1,5 @@
 use std::time::Duration;
 
-
 use crate::{Error, Result, utils::run};
 
 pub struct Notification {
