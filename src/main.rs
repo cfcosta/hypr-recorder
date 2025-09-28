@@ -61,6 +61,9 @@ async fn main() -> Result<()> {
 
                 if elapsed >= Duration::from_secs(60) {
                     info!("Recording reached 1-minute limit, auto-saving");
+                    if let Err(e) = key_handler.cleanup().await {
+                        warn!("Failed to cleanup keybindings before auto-save: {}", e);
+                    }
                     break save_recording(&mut recorder, &mut notification, &transcriber)
                         .await;
                 }
@@ -74,6 +77,12 @@ async fn main() -> Result<()> {
 
                 if !recorder.is_recording() {
                     info!("Recording stopped externally");
+                    if let Err(e) = key_handler.cleanup().await {
+                        warn!(
+                            "Failed to cleanup keybindings before external stop save: {}",
+                            e
+                        );
+                    }
                     break save_recording(&mut recorder, &mut notification, &transcriber)
                         .await;
                 }
@@ -83,15 +92,33 @@ async fn main() -> Result<()> {
                 match key_result {
                     Ok(KeyAction::Save) => {
                         info!("Save key pressed");
+                        if let Err(e) = key_handler.cleanup().await {
+                            warn!(
+                                "Failed to cleanup keybindings before manual save: {}",
+                                e
+                            );
+                        }
                         break save_recording(&mut recorder, &mut notification, &transcriber)
                             .await;
                     }
                     Ok(KeyAction::Cancel) => {
                         info!("Cancel key pressed");
+                        if let Err(e) = key_handler.cleanup().await {
+                            warn!(
+                                "Failed to cleanup keybindings before cancel: {}",
+                                e
+                            );
+                        }
                         break cancel_recording(&mut recorder, &mut notification).await;
                     }
                     Err(e) => {
                         error!("Key handler error: {}", e);
+                        if let Err(cleanup_err) = key_handler.cleanup().await {
+                            warn!(
+                                "Failed to cleanup keybindings after error: {}",
+                                cleanup_err
+                            );
+                        }
                         break cancel_recording(&mut recorder, &mut notification).await;
                     }
                 }
