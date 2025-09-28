@@ -8,7 +8,7 @@ mod utils;
 use std::{
     env,
     path::PathBuf,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use input::{Action, Input};
@@ -149,8 +149,11 @@ async fn save_recording(
         return Ok(());
     }
 
-    let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
-    let filename = format!("recording_{timestamp}.wav");
+    let timestamp_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let filename = format!("recording_{timestamp_ms}.wav");
 
     let output_path = env::home_dir()
         .map(|d| d.join("Recordings"))
