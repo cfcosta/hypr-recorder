@@ -1,4 +1,4 @@
-use std::{env, path::PathBuf, time::Duration};
+use std::{env, path::PathBuf, process::Command as StdCommand, time::Duration};
 
 use tempfile::NamedTempFile;
 use tokio::{fs, time::interval};
@@ -104,18 +104,25 @@ impl KeyHandler {
         let remove_enter = "keyword unbind ,Return";
         let remove_escape = "keyword unbind ,Escape";
 
+        let mut had_error = false;
+
         if let Err(e) = self.send_cmd(remove_enter).await {
-            warn!("Failed to remove Enter keybinding: {}", e);
+            warn!("Failed to remove Enter keybinding asynchronously: {}", e);
+            had_error = true;
         }
 
         if let Err(e) = self.send_cmd(remove_escape).await {
-            warn!("Failed to remove Escape keybinding: {}", e);
+            warn!("Failed to remove Escape keybinding asynchronously: {}", e);
+            had_error = true;
         }
 
-        self.bindings_registered = false;
-        self.temp_file = None;
+        if had_error {
+            warn!("Falling back to blocking keybinding cleanup");
+            self.cleanup_blocking();
+        } else {
+            self.finish_cleanup();
+        }
 
-        info!("Keybinding cleanup completed");
         Ok(())
     }
 
@@ -138,20 +145,54 @@ impl KeyHandler {
 
         Ok(response.to_string())
     }
+
+    fn cleanup_blocking(&mut self) {
+        if !self.bindings_registered {
+            return;
+        }
+
+        for (command, name) in [
+            ("keyword unbind ,Return", "Enter"),
+            ("keyword unbind ,Escape", "Escape"),
+        ] {
+            if let Err(e) = Self::send_cmd_blocking(command) {
+                warn!(
+                    "Failed to remove {name} keybinding in blocking fallback: {}",
+                    e
+                );
+            }
+        }
+
+        self.finish_cleanup();
+    }
+
+    fn finish_cleanup(&mut self) {
+        self.bindings_registered = false;
+        self.temp_file = None;
+        info!("Keybinding cleanup completed");
+    }
+
+    fn send_cmd_blocking(command: &str) -> Result<String> {
+        debug!("Sending Hyprland command (blocking): {}", command);
+
+        let output = StdCommand::new("hyprctl")
+            .arg("--batch")
+            .arg(command)
+            .output()?;
+
+        if !output.status.success() {
+            return Err(Error::HyprlandNotRunning);
+        }
+
+        let response = String::from_utf8_lossy(&output.stdout);
+        debug!("Hyprland response (blocking): {}", response);
+
+        Ok(response.to_string())
+    }
 }
 
 impl Drop for KeyHandler {
     fn drop(&mut self) {
-        if self.bindings_registered {
-            // Best effort cleanup in blocking context
-            let rt = tokio::runtime::Handle::try_current();
-            if let Ok(handle) = rt {
-                handle.spawn(async move {
-                    // Note: self is moved here, so we can't access it
-                    // This is a limitation of the Drop trait
-                    warn!("Keybindings may not be properly cleaned up on drop");
-                });
-            }
-        }
+        self.cleanup_blocking();
     }
 }
