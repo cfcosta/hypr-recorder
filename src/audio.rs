@@ -36,9 +36,9 @@ impl AudioRecorder {
         let host = cpal::default_host();
         let device =
             host.default_input_device()
-                .ok_or(Error::MissingInputDevice(format!(
-                    "Missing recorder input device"
-                )))?;
+                .ok_or(Error::MissingInputDevice(
+                    "Missing recorder input device".to_string(),
+                ))?;
 
         info!("Using input device: {}", device.name()?);
 
