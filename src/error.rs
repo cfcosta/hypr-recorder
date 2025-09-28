@@ -4,6 +4,18 @@ pub enum Error {
     HyprlandNotRunning,
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
+    #[error("Missing input device: {0}")]
+    MissingInputDevice(String),
+    #[error("CPAL device name error: {0}")]
+    CpalDeviceName(#[from] cpal::DeviceNameError),
+    #[error("CPAL default config error: {0}")]
+    CpalDefaultConfig(#[from] cpal::DefaultStreamConfigError),
+    #[error("CPAL build stream error: {0}")]
+    CpalBuildStream(#[from] cpal::BuildStreamError),
+    #[error("CPAL stream playback error: {0}")]
+    CpalPlayStream(#[from] cpal::PlayStreamError),
+    #[error("Audio encoding error: {0}")]
+    AudioEncoding(#[from] hound::Error),
     #[error("Notification error: {0}")]
     Notification(String),
     #[error("Portal error: {0}")]

@@ -148,6 +148,7 @@
             python3Packages.openai-whisper
             libinput
             (whisper-cpp.override { cudaSupport = true; })
+            alsa-lib
           ];
         };
       }

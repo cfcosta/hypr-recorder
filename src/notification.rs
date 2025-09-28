@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use crate::{Error, Result, utils::run};
+use crate::{utils::run, Error, Result};
 
 pub struct Notification {
     is_active: bool,

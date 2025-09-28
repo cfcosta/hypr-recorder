@@ -3,25 +3,25 @@ use std::{
     os::fd::{AsRawFd, FromRawFd, IntoRawFd, OwnedFd, RawFd},
     path::{Path, PathBuf},
     sync::{
-        Arc,
         atomic::{AtomicBool, Ordering},
+        Arc,
     },
-    time::{Duration, Instant, SystemTime},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use ashpd::{
-    Error as AshpdError,
-    PortalError as AshpdPortalError,
     desktop::{
+        screencast::{CursorMode, Screencast, SourceType, Stream},
         PersistMode,
         Session,
-        screencast::{CursorMode, Screencast, SourceType, Stream},
     },
+    Error as AshpdError,
+    PortalError as AshpdPortalError,
 };
-use gstreamer::{self as gst, ClockTime, prelude::*};
+use gstreamer::{self as gst, prelude::*, ClockTime};
 use tokio::{fs, task::JoinHandle, time::sleep};
 
-use crate::{Error, Result};
+use crate::{audio::AudioRecorder, Error, Result};
 
 const RECORDING_LIMIT_SECS: u64 = 60;
 
@@ -30,6 +30,7 @@ pub struct Recorder {
     session: Option<Session<'static, Screencast<'static>>>,
     remote_fd: Option<OwnedFd>,
     recording_path: Option<PathBuf>,
+    fallback_audio: Option<FallbackAudio>,
     is_recording: Arc<AtomicBool>,
     start_time: Option<Instant>,
     timeout_task: Option<JoinHandle<()>>,
@@ -44,6 +45,7 @@ impl Recorder {
             session: None,
             remote_fd: None,
             recording_path: None,
+            fallback_audio: None,
             is_recording: Arc::new(AtomicBool::new(false)),
             start_time: None,
             timeout_task: None,
@@ -61,6 +63,16 @@ impl Recorder {
         }
 
         let resources = Self::build_pipeline(&output_path).await?;
+        let mut fallback_audio = None;
+        if !resources.audio_attached {
+            let mut audio_recorder = AudioRecorder::new()?;
+            audio_recorder.start().await?;
+            fallback_audio = Some(FallbackAudio::new(
+                audio_recorder,
+                output_path.with_extension("wav"),
+            ));
+        }
+
         let pipeline = resources.pipeline;
         pipeline.set_state(gst::State::Playing)?;
 
@@ -68,6 +80,7 @@ impl Recorder {
         self.session = Some(resources.session);
         self.remote_fd = Some(resources.remote_fd);
         self.recording_path = Some(output_path);
+        self.fallback_audio = fallback_audio;
         self.start_time = Some(Instant::now());
         self.is_recording.store(true, Ordering::Relaxed);
 
@@ -136,13 +149,24 @@ impl Recorder {
         self.remote_fd = None;
         self.start_time = None;
 
+        let fallback_audio_path = match self.fallback_audio.take() {
+            Some(fallback) => fallback.stop(!discard)?,
+            None => None,
+        };
+
         let path = self.recording_path.take();
 
         if discard {
+            if let Some(audio_path) = fallback_audio_path {
+                let _ = fs::remove_file(audio_path).await;
+            }
             return Ok(path);
         }
 
         if !was_recording {
+            if let Some(audio_path) = fallback_audio_path {
+                let _ = fs::remove_file(audio_path).await;
+            }
             if let Some(ref stale) = path {
                 let _ = fs::remove_file(stale).await;
             }
@@ -150,6 +174,24 @@ impl Recorder {
         }
 
         if let Some(path) = path {
+            if let Some(audio_path) = fallback_audio_path {
+                match Self::mux_with_fallback_audio(&path, &audio_path).await {
+                    Ok(()) => {
+                        let _ = fs::remove_file(&audio_path).await;
+                    }
+                    Err(err) => {
+                        eprintln!(
+                            "Failed to merge fallback audio into recording {}: {err}",
+                            path.display()
+                        );
+                        eprintln!(
+                            "Audio fallback saved separately at {}",
+                            audio_path.display()
+                        );
+                    }
+                }
+            }
+
             match fs::metadata(&path).await {
                 Ok(metadata) if metadata.len() > 0 => Ok(Some(path)),
                 Ok(_) | Err(_) => {
@@ -158,12 +200,16 @@ impl Recorder {
                 }
             }
         } else {
+            if let Some(audio_path) = fallback_audio_path {
+                let _ = fs::remove_file(audio_path).await;
+            }
             Ok(None)
         }
     }
 
     fn recording_path() -> Result<PathBuf> {
-        let timestamp = SystemTime::now().elapsed()?.as_millis();
+        let timestamp =
+            SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
         let filename = format!("capture_{timestamp}.mp4");
 
         let base_dir = env::home_dir()
@@ -172,6 +218,91 @@ impl Recorder {
             .unwrap_or_else(|| PathBuf::from("/tmp"));
 
         Ok(base_dir.join(filename))
+    }
+
+    async fn mux_with_fallback_audio(
+        video_path: &Path,
+        audio_path: &Path,
+    ) -> Result<()> {
+        let stem = video_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("capture");
+        let temp_video =
+            video_path.with_file_name(format!("{}_video-only.mp4", stem));
+
+        if fs::metadata(&temp_video).await.is_ok() {
+            fs::remove_file(&temp_video).await?;
+        }
+
+        fs::rename(video_path, &temp_video).await?;
+
+        let video_location = Self::escape_for_gst(&temp_video);
+        let audio_location = Self::escape_for_gst(audio_path);
+        let output_location = Self::escape_for_gst(video_path);
+
+        let mux_result = (|| -> Result<()> {
+            let description = format!(
+                "filesrc location=\"{video_location}\" ! qtdemux name=demux \
+                 demux.video_0 ! queue ! h264parse ! queue ! mux. \
+                 filesrc location=\"{audio_location}\" ! wavparse ! audioconvert ! audioresample ! \
+                 avenc_aac bitrate=128000 ! queue ! mux. \
+                 mp4mux name=mux faststart=true ! filesink location=\"{output_location}\""
+            );
+
+            let element = gst::parse::launch(&description)?;
+            let pipeline =
+                element.downcast::<gst::Pipeline>().map_err(|_| {
+                    Error::ScreenCapture(
+                        "Failed to create audio muxing pipeline".into(),
+                    )
+                })?;
+
+            pipeline.set_state(gst::State::Playing)?;
+
+            let bus = pipeline.bus().ok_or_else(|| {
+                Error::ScreenCapture(
+                    "Failed to retrieve GStreamer bus for audio muxing".into(),
+                )
+            })?;
+
+            let mut result = Ok(());
+            while let Some(msg) = bus.timed_pop(ClockTime::from_mseconds(500)) {
+                match msg.view() {
+                    gst::MessageView::Eos(_) => break,
+                    gst::MessageView::Error(err) => {
+                        result = Err(Error::ScreenCapture(format!(
+                            "Audio muxing error: {} (debug {:?})",
+                            err.error(),
+                            err.debug()
+                        )));
+                        break;
+                    }
+                    _ => (),
+                }
+            }
+
+            pipeline.set_state(gst::State::Null)?;
+            result
+        })();
+
+        match mux_result {
+            Ok(()) => {
+                fs::remove_file(&temp_video).await?;
+                Ok(())
+            }
+            Err(err) => {
+                let _ = fs::rename(&temp_video, video_path).await;
+                Err(err)
+            }
+        }
+    }
+
+    fn escape_for_gst(path: &Path) -> String {
+        let mut value = path.to_string_lossy().to_string();
+        value = value.replace('\\', "\\\\");
+        value = value.replace('"', "\\\"");
+        value
     }
 
     async fn build_pipeline(path: &Path) -> Result<PipelineResources> {
@@ -261,6 +392,7 @@ impl Recorder {
             Self::split_streams(streams.streams())?;
 
         let remote = unsafe { OwnedFd::from_raw_fd(remote_fd.into_raw_fd()) };
+        let audio_attached = audio_stream.is_some();
         let pipeline =
             Self::create_pipeline(&remote, video_stream, audio_stream, path)?;
 
@@ -268,6 +400,7 @@ impl Recorder {
             pipeline,
             session,
             remote_fd: remote,
+            audio_attached,
         })
     }
 
@@ -328,14 +461,14 @@ impl Recorder {
             let audio_path = audio_stream.pipe_wire_node_id();
             format!(
                 "pipewiresrc fd={video_fd} path={video_path} do-timestamp=true ! queue ! videoconvert ! queue ! \
-                 x264enc bitrate=8000 speed-preset=ultrafast tune=zerolatency key-int-max=60 ! h264parse ! queue ! mux. \
+                 x264enc bitrate=20000 speed-preset=faster tune=zerolatency key-int-max=60 ! h264parse ! queue ! mux. \
                  pipewiresrc fd={audio_fd} path={audio_path} do-timestamp=true ! queue ! audioconvert ! audioresample ! \
                  avenc_aac bitrate=128000 compliance=-2 ! queue ! mux. mp4mux name=mux faststart=true ! filesink location=\"{location}\""
             )
         } else {
             format!(
                 "pipewiresrc fd={video_fd} path={video_path} do-timestamp=true ! queue ! videoconvert ! queue ! \
-                 x264enc bitrate=8000 speed-preset=ultrafast tune=zerolatency key-int-max=60 ! h264parse ! queue ! mp4mux name=mux faststart=true ! filesink location=\"{location}\""
+                 x264enc bitrate=20000 speed-preset=faster tune=zerolatency key-int-max=60 ! h264parse ! queue ! mp4mux name=mux faststart=true ! filesink location=\"{location}\""
             )
         };
 
@@ -354,8 +487,31 @@ impl Recorder {
     }
 }
 
+struct FallbackAudio {
+    recorder: AudioRecorder,
+    path: PathBuf,
+}
+
+impl FallbackAudio {
+    fn new(recorder: AudioRecorder, path: PathBuf) -> Self {
+        Self { recorder, path }
+    }
+
+    fn stop(mut self, keep: bool) -> Result<Option<PathBuf>> {
+        let samples = self.recorder.stop()?;
+
+        if !keep || samples.is_empty() {
+            return Ok(None);
+        }
+
+        self.recorder.save(&samples, &self.path)?;
+        Ok(Some(self.path))
+    }
+}
+
 struct PipelineResources {
     pipeline: gst::Pipeline,
     session: Session<'static, Screencast<'static>>,
     remote_fd: OwnedFd,
+    audio_attached: bool,
 }

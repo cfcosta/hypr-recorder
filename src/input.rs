@@ -4,9 +4,9 @@ use tempfile::NamedTempFile;
 use tokio::{fs, time::interval};
 
 use crate::{
+    utils::{run, run_async},
     Error,
     Result,
-    utils::{run, run_async},
 };
 
 #[derive(Debug, Clone, PartialEq)]

@@ -5,6 +5,8 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
+cpal = "0.16"
+hound = "3.5"
 ashpd = { version = "0.12", default-features = false, features = ["tokio"] }
 gstreamer = { version = "0.24" }
 input = "0.9.1"
