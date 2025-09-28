@@ -4,21 +4,20 @@ use tracing::info;
 
 use crate::{Error, Result};
 
-pub struct RecordingNotification {
+pub struct Notification {
     is_active: bool,
 }
 
-impl RecordingNotification {
+impl Notification {
     pub fn show() -> Result<Self> {
         info!("Showing recording notification via swayosd");
 
-        // Show initial progress (0%)
         Self::show_progress(0, 0)?;
 
         Ok(Self { is_active: true })
     }
 
-    pub fn update_progress(&mut self, elapsed: Duration) -> Result<()> {
+    pub fn update(&mut self, elapsed: Duration) -> Result<()> {
         if !self.is_active {
             return Ok(());
         }
@@ -31,7 +30,7 @@ impl RecordingNotification {
         Ok(())
     }
 
-    pub fn show_completed(&mut self, saved: bool) -> Result<()> {
+    pub fn complete(&mut self, saved: bool) -> Result<()> {
         self.is_active = false;
 
         let (message, icon) = if saved {

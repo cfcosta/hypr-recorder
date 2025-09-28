@@ -1,7 +1,7 @@
-mod audio;
 mod error;
 mod input;
 mod notification;
+mod recorder;
 mod transcriber;
 
 use std::{
@@ -10,9 +10,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use audio::AudioRecorder;
-use input::{KeyAction, KeyHandler};
-use notification::RecordingNotification;
+use input::{Action, Input};
+use notification::Notification;
+use recorder::Recorder;
 use tokio::time::{interval, sleep};
 use tracing::{error, info, warn};
 use transcriber::Transcriber;
@@ -33,20 +33,20 @@ async fn main() -> Result<()> {
         return Err(Error::HyprlandNotRunning);
     }
 
-    let mut recorder = AudioRecorder::new()?;
+    let mut recorder = Recorder::new()?;
 
-    let mut notification = RecordingNotification::show()?;
+    let mut notification = Notification::show()?;
 
-    let mut key_handler = KeyHandler::new().await?;
+    let mut key_handler = Input::new().await?;
 
     let transcriber = Transcriber::new();
 
-    if let Err(e) = key_handler.register_bindings().await {
+    if let Err(e) = key_handler.register().await {
         error!("Failed to register keybindings: {}", e);
         return Err(e);
     }
 
-    recorder.start_recording().await?;
+    recorder.start().await?;
 
     info!("Recording started. Press Enter to save, Esc to cancel.");
 
@@ -69,7 +69,7 @@ async fn main() -> Result<()> {
                 }
 
                 if last_update.elapsed() >= Duration::from_millis(100) {
-                    if let Err(e) = notification.update_progress(elapsed) {
+                    if let Err(e) = notification.update(elapsed) {
                         warn!("Failed to update notification: {}", e);
                     }
                     last_update = Instant::now();
@@ -90,7 +90,7 @@ async fn main() -> Result<()> {
 
             key_result = key_handler.wait_for_input() => {
                 match key_result {
-                    Ok(KeyAction::Save) => {
+                    Ok(Action::Save) => {
                         info!("Save key pressed");
                         if let Err(e) = key_handler.cleanup().await {
                             warn!(
@@ -101,7 +101,7 @@ async fn main() -> Result<()> {
                         break save_recording(&mut recorder, &mut notification, &transcriber)
                             .await;
                     }
-                    Ok(KeyAction::Cancel) => {
+                    Ok(Action::Cancel) => {
                         info!("Cancel key pressed");
                         if let Err(e) = key_handler.cleanup().await {
                             warn!(
@@ -134,17 +134,17 @@ async fn main() -> Result<()> {
 }
 
 async fn save_recording(
-    recorder: &mut AudioRecorder,
-    notification: &mut RecordingNotification,
+    recorder: &mut Recorder,
+    notification: &mut Notification,
     transcriber: &Transcriber,
 ) -> Result<()> {
     info!("Saving recording...");
 
-    let samples = recorder.stop_recording()?;
+    let samples = recorder.stop()?;
 
     if samples.is_empty() {
         warn!("No audio data recorded");
-        notification.show_completed(false)?;
+        notification.complete(false)?;
         return Ok(());
     }
 
@@ -161,22 +161,22 @@ async fn save_recording(
         )
         .join(&filename);
 
-    recorder.save_to_file(&samples, &output_path)?;
+    recorder.save(&samples, &output_path)?;
 
     info!("Recording saved to: {}", output_path.display());
 
-    let transcript_path = match transcriber.transcribe(&output_path).await {
+    let transcript_path = match transcriber.start(&output_path).await {
         Ok(path) => path,
         Err(e) => {
             error!("Failed to transcribe recording: {}", e);
-            let _ = notification.show_completed(false);
+            let _ = notification.complete(false);
             return Err(e);
         }
     };
 
     info!("Transcription saved to: {}", transcript_path.display());
 
-    notification.show_completed(true)?;
+    notification.complete(true)?;
 
     sleep(Duration::from_secs(2)).await;
 
@@ -184,14 +184,14 @@ async fn save_recording(
 }
 
 async fn cancel_recording(
-    recorder: &mut AudioRecorder,
-    notification: &mut RecordingNotification,
+    recorder: &mut Recorder,
+    notification: &mut Notification,
 ) -> Result<()> {
     info!("Cancelling recording...");
 
-    let _ = recorder.stop_recording();
+    let _ = recorder.stop();
 
-    notification.show_completed(false)?;
+    notification.complete(false)?;
 
     sleep(Duration::from_secs(1)).await;
 

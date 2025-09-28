@@ -7,17 +7,17 @@ use tracing::{debug, info, warn};
 use crate::{Error, Result};
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum KeyAction {
+pub enum Action {
     Save,
     Cancel,
 }
 
-pub struct KeyHandler {
+pub struct Input {
     temp_file: Option<NamedTempFile>,
     bindings_registered: bool,
 }
 
-impl KeyHandler {
+impl Input {
     pub async fn new() -> Result<Self> {
         let runtime_dir = env::var("XDG_RUNTIME_DIR")
             .map_err(|_| Error::HyprlandNotRunning)?;
@@ -38,21 +38,19 @@ impl KeyHandler {
         })
     }
 
-    pub async fn register_bindings(&mut self) -> Result<()> {
+    pub async fn register(&mut self) -> Result<()> {
         info!("Registering global keybindings");
 
-        // Create temporary file for communication
         let temp_file = NamedTempFile::new()?;
         let temp_path = temp_file.path().to_string_lossy();
 
-        // Register keybindings via Hyprland IPC
         let enter_cmd =
             format!("keyword bind ,Return,exec,echo 'SAVE' > {temp_path}");
         let escape_cmd =
             format!("keyword bind ,Escape,exec,echo 'CANCEL' > {temp_path}");
 
-        self.send_cmd(&enter_cmd).await?;
-        self.send_cmd(&escape_cmd).await?;
+        self.cmd(&enter_cmd).await?;
+        self.cmd(&escape_cmd).await?;
 
         self.temp_file = Some(temp_file);
         self.bindings_registered = true;
@@ -61,7 +59,7 @@ impl KeyHandler {
         Ok(())
     }
 
-    pub async fn wait_for_input(&self) -> Result<KeyAction> {
+    pub async fn wait_for_input(&self) -> Result<Action> {
         let temp_file = self.temp_file.as_ref().unwrap();
         let temp_path = temp_file.path();
 
@@ -81,8 +79,8 @@ impl KeyHandler {
                     let _ = fs::write(temp_path, "").await;
 
                     match content {
-                        "SAVE" => return Ok(KeyAction::Save),
-                        "CANCEL" => return Ok(KeyAction::Cancel),
+                        "SAVE" => return Ok(Action::Save),
+                        "CANCEL" => return Ok(Action::Cancel),
                         _ => {
                             warn!("Unknown key action: {}", content);
                             continue;
@@ -100,18 +98,17 @@ impl KeyHandler {
 
         info!("Cleaning up global keybindings");
 
-        // Remove the keybindings
         let remove_enter = "keyword unbind ,Return";
         let remove_escape = "keyword unbind ,Escape";
 
         let mut had_error = false;
 
-        if let Err(e) = self.send_cmd(remove_enter).await {
+        if let Err(e) = self.cmd(remove_enter).await {
             warn!("Failed to remove Enter keybinding asynchronously: {}", e);
             had_error = true;
         }
 
-        if let Err(e) = self.send_cmd(remove_escape).await {
+        if let Err(e) = self.cmd(remove_escape).await {
             warn!("Failed to remove Escape keybinding asynchronously: {}", e);
             had_error = true;
         }
@@ -126,7 +123,7 @@ impl KeyHandler {
         Ok(())
     }
 
-    async fn send_cmd(&self, command: &str) -> Result<String> {
+    async fn cmd(&self, command: &str) -> Result<String> {
         debug!("Sending Hyprland command: {}", command);
 
         // Use `hyprctl` to send commands (more reliable than direct socket)
@@ -155,7 +152,7 @@ impl KeyHandler {
             ("keyword unbind ,Return", "Enter"),
             ("keyword unbind ,Escape", "Escape"),
         ] {
-            if let Err(e) = Self::send_cmd_blocking(command) {
+            if let Err(e) = Self::cmd_blocking(command) {
                 warn!(
                     "Failed to remove {name} keybinding in blocking fallback: {}",
                     e
@@ -172,7 +169,7 @@ impl KeyHandler {
         info!("Keybinding cleanup completed");
     }
 
-    fn send_cmd_blocking(command: &str) -> Result<String> {
+    fn cmd_blocking(command: &str) -> Result<String> {
         debug!("Sending Hyprland command (blocking): {}", command);
 
         let output = StdCommand::new("hyprctl")
@@ -191,7 +188,7 @@ impl KeyHandler {
     }
 }
 
-impl Drop for KeyHandler {
+impl Drop for Input {
     fn drop(&mut self) {
         self.cleanup_blocking();
     }

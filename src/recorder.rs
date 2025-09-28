@@ -22,7 +22,7 @@ use tracing::{debug, error, info};
 
 use crate::{Error, Result};
 
-pub struct AudioRecorder {
+pub struct Recorder {
     device: Device,
     config: StreamConfig,
     samples: Arc<Mutex<Vec<f32>>>,
@@ -32,7 +32,7 @@ pub struct AudioRecorder {
     timeout_task: Option<JoinHandle<()>>,
 }
 
-impl AudioRecorder {
+impl Recorder {
     pub fn new() -> Result<Self> {
         let host = cpal::default_host();
         let device =
@@ -58,7 +58,7 @@ impl AudioRecorder {
         })
     }
 
-    pub async fn start_recording(&mut self) -> Result<()> {
+    pub async fn start(&mut self) -> Result<()> {
         info!("Starting audio recording...");
 
         if let Some(handle) = self.timeout_task.take() {
@@ -90,7 +90,6 @@ impl AudioRecorder {
         stream.play()?;
         self.stream = Some(stream);
 
-        // Start timeout task
         let is_recording_timeout = Arc::clone(&self.is_recording);
         self.timeout_task = Some(tokio::spawn(async move {
             sleep(Duration::from_secs(60)).await;
@@ -102,7 +101,7 @@ impl AudioRecorder {
         Ok(())
     }
 
-    pub fn stop_recording(&mut self) -> Result<Vec<f32>> {
+    pub fn stop(&mut self) -> Result<Vec<f32>> {
         info!("Stopping audio recording...");
 
         self.is_recording.store(false, Ordering::Relaxed);
@@ -121,11 +120,7 @@ impl AudioRecorder {
         Ok(samples)
     }
 
-    pub fn save_to_file<P: AsRef<Path>>(
-        &self,
-        samples: &[f32],
-        path: P,
-    ) -> Result<()> {
+    pub fn save<P: AsRef<Path>>(&self, samples: &[f32], path: P) -> Result<()> {
         let spec = WavSpec {
             channels: self.config.channels,
             sample_rate: self.config.sample_rate.0,

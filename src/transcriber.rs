@@ -41,18 +41,15 @@ impl Transcriber {
         }
     }
 
-    pub async fn transcribe(&self, audio_path: &Path) -> Result<PathBuf> {
+    pub async fn start(&self, audio_path: &Path) -> Result<PathBuf> {
         let output_dir = audio_path
             .parent()
             .map(Path::to_path_buf)
             .unwrap_or_else(|| PathBuf::from("."));
-        let mut expected_transcript = audio_path.to_path_buf();
-        expected_transcript.set_extension("txt");
+        let mut expected = audio_path.to_path_buf();
+        expected.set_extension("txt");
 
-        info!(
-            "Transcribing recording with Whisper: {}",
-            audio_path.display()
-        );
+        info!(path = %audio_path.display(), "Transcribing recording");
 
         let mut args = Vec::new();
         args.push(audio_path.to_string_lossy().to_string());
@@ -91,7 +88,7 @@ impl Transcriber {
             )));
         }
 
-        if fs::metadata(&expected_transcript).await.is_err() {
+        if fs::metadata(&expected).await.is_err() {
             let audio_filename = audio_path.file_name().ok_or_else(|| {
                 Error::Transcription(
                     "Audio path is missing a file name".to_string(),
@@ -102,31 +99,29 @@ impl Transcriber {
 
             match fs::metadata(&alternate).await {
                 Ok(_) => {
-                    fs::rename(&alternate, &expected_transcript)
-                        .await
-                        .map_err(|err| {
-                            Error::Transcription(format!(
-                                "Failed to move transcript from {} to {}: {}",
-                                alternate.display(),
-                                expected_transcript.display(),
-                                err
-                            ))
-                        })?;
+                    fs::rename(&alternate, &expected).await.map_err(|err| {
+                        Error::Transcription(format!(
+                            "Failed to move transcript from {} to {}: {}",
+                            alternate.display(),
+                            expected.display(),
+                            err
+                        ))
+                    })?;
                 }
                 Err(e) => {
                     let stdout = String::from_utf8_lossy(&output.stdout);
                     return Err(Error::Transcription(format!(
                         "Whisper did not produce a transcript at {}. Error: {}, Stdout: {}",
                         e,
-                        expected_transcript.display(),
+                        expected.display(),
                         stdout.trim()
                     )));
                 }
             }
         }
 
-        info!("Transcript ready: {}", expected_transcript.display());
+        info!("Transcript ready: {}", expected.display());
 
-        Ok(expected_transcript)
+        Ok(expected)
     }
 }
