@@ -85,6 +85,15 @@
           name = "hypr-recorder";
           src = ./.;
           cargoLock.lockFile = ./Cargo.lock;
+          buildInputs = with pkgs; [
+            alsa-lib
+            libinput
+            libudev-zero
+            whisper-cpp
+          ];
+          nativeBuildInputs = with pkgs; [
+            pkg-config
+          ];
         };
       in
       {
