@@ -100,24 +100,28 @@ impl Transcriber {
             let alternate = output_dir
                 .join(format!("{}.txt", audio_filename.to_string_lossy()));
 
-            if fs::metadata(&alternate).await.is_ok() {
-                fs::rename(&alternate, &expected_transcript).await.map_err(
-                    |err| {
-                        Error::Transcription(format!(
-                            "Failed to move transcript from {} to {}: {}",
-                            alternate.display(),
-                            expected_transcript.display(),
-                            err
-                        ))
-                    },
-                )?;
-            } else {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                return Err(Error::Transcription(format!(
-                    "Whisper did not produce a transcript at {}. Stdout: {}",
-                    expected_transcript.display(),
-                    stdout.trim()
-                )));
+            match fs::metadata(&alternate).await {
+                Ok(_) => {
+                    fs::rename(&alternate, &expected_transcript)
+                        .await
+                        .map_err(|err| {
+                            Error::Transcription(format!(
+                                "Failed to move transcript from {} to {}: {}",
+                                alternate.display(),
+                                expected_transcript.display(),
+                                err
+                            ))
+                        })?;
+                }
+                Err(e) => {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    return Err(Error::Transcription(format!(
+                        "Whisper did not produce a transcript at {}. Error: {}, Stdout: {}",
+                        e.to_string(),
+                        expected_transcript.display(),
+                        stdout.trim()
+                    )));
+                }
             }
         }
 
