@@ -148,16 +148,18 @@ async fn save_recording(
 
     println!("Recording saved to: {}", recording_path.display());
 
-    let transcript_path = match transcriber.start(&recording_path).await {
-        Ok(path) => path,
-        Err(e) => {
-            eprintln!("Failed to transcribe recording: {}", e);
-            let _ = notification.complete(false);
-            return Err(e);
-        }
-    };
+    if env::var("HYPR_RECORDER_TRANSCRIBE").is_ok() {
+        let transcript_path = match transcriber.start(&recording_path).await {
+            Ok(path) => path,
+            Err(e) => {
+                eprintln!("Failed to transcribe recording: {}", e);
+                let _ = notification.complete(false);
+                return Err(e);
+            }
+        };
 
-    println!("Transcription saved to: {}", transcript_path.display());
+        println!("Transcription saved to: {}", transcript_path.display());
+    }
 
     notification.complete(true)?;
 
